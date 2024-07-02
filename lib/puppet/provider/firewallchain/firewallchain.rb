@@ -7,31 +7,31 @@ class Puppet::Provider::Firewallchain::Firewallchain
   ###### GLOBAL VARIABLES ######
 
   # Command to list all chains and rules
-  $list_command = {
+  $fwc_list_command = {
     'IPv4' => 'iptables-save',
     'IPv6' => 'ip6tables-save'
   }
-  # Regex used to divide output of$list_command between tables
-  $table_regex = %r{(\*(?:nat|mangle|filter|raw|rawpost|broute|security)[^*]+)}
+  # Regex used to divide output of$fwc_list_command between tables
+  $fwc_table_regex = %r{(\*(?:nat|mangle|filter|raw|rawpost|broute|security)[^*]+)}
   # Regex used to retrieve table name
-  $table_name_regex = %r{^\*(nat|mangle|filter|raw|rawpost|broute|security)}
+  $fwc_table_name_regex = %r{^\*(nat|mangle|filter|raw|rawpost|broute|security)}
   # Regex used to retrieve Chains
-  $chain_regex = %r{\n:(INPUT|FORWARD|OUTPUT|(?:\S+))(?:\s(ACCEPT|DROP|QEUE|RETURN|PREROUTING|POSTROUTING))?}
+  $fwc_chain_regex = %r{\n:(INPUT|FORWARD|OUTPUT|(?:\S+))(?:\s(ACCEPT|DROP|QEUE|RETURN|PREROUTING|POSTROUTING))?}
   # Base commands for the protocols, including table affixes
-  $base_command = {
+  $fwc_base_command = {
     'IPv4' => 'iptables -t',
     'IPv6' => 'ip6tables -t'
   }
   # Command to create a chain
-  $chain_create_command = '-N'
+  $fwc_chain_create_command = '-N'
   # Command to flush all rules from a chain, must be used before deleting
-  $chain_flush_command = '-F'
+  $fwc_chain_flush_command = '-F'
   # Command to delete a chain, cannot be used on inbuilt
-  $chain_delete_command = '-X'
+  $fwc_chain_delete_command = '-X'
   # Command to set chain policy, works on inbuilt chains only
-  $chain_policy_command = '-P'
+  $fwc_chain_policy_command = '-P'
   # Check if the given chain name references a built in one
-  $built_in_regex = %r{^(?:INPUT|OUTPUT|FORWARD|PREROUTING|POSTROUTING)$}
+  $fwc_built_in_regex = %r{^(?:INPUT|OUTPUT|FORWARD|PREROUTING|POSTROUTING)$}
 
   ###### PUBLIC METHODS ######
 
@@ -42,10 +42,10 @@ class Puppet::Provider::Firewallchain::Firewallchain
     # Scan String to retrieve all Chains and Policies
     ['IPv4', 'IPv6'].each do |protocol|
       # Retrieve String containing all IPv4 information
-      iptables_list = Puppet::Provider.execute($list_command[protocol])
-      iptables_list.scan($table_regex).each do |table|
-        table_name = table[0].scan($table_name_regex)[0][0]
-        table[0].scan($chain_regex).each do |chain|
+      iptables_list = Puppet::Provider.execute($fwc_list_command[protocol])
+      iptables_list.scan($fwc_table_regex).each do |table|
+        table_name = table[0].scan($fwc_table_name_regex)[0][0]
+        table[0].scan($fwc_chain_regex).each do |chain|
           # Create the base hash
           chain_hash = {
             name: "#{chain[0]}:#{table_name}:#{protocol}",
@@ -94,32 +94,32 @@ class Puppet::Provider::Firewallchain::Firewallchain
 
   def create(context, name, should)
     context.notice("Creating Chain '#{name}' with #{should.inspect}")
-    Puppet::Provider.execute([$base_command[should[:protocol]], should[:table], $chain_create_command, should[:chain]].join(' '))
+    Puppet::Provider.execute([$fwc_base_command[should[:protocol]], should[:table], $fwc_chain_create_command, should[:chain]].join(' '))
     PuppetX::Firewall::Utility.persist_iptables(context, name, should[:protocol])
   end
 
   def update(context, name, should, is)
     # Skip the update if not a inbuilt chain or if policy has not been updated
-    return if !$built_in_regex.match(should[:chain]) ||
-              ($built_in_regex.match(should[:chain]) && is[:policy] == should[:policy])
+    return if !$fwc_built_in_regex.match(should[:chain]) ||
+              ($fwc_built_in_regex.match(should[:chain]) && is[:policy] == should[:policy])
 
     context.notice("Updating Chain '#{name}' with #{should.inspect}")
-    Puppet::Provider.execute([$base_command[should[:protocol]], should[:table], $chain_policy_command, should[:chain], should[:policy].upcase].join(' '))
+    Puppet::Provider.execute([$fwc_base_command[should[:protocol]], should[:table], $fwc_chain_policy_command, should[:chain], should[:policy].upcase].join(' '))
     PuppetX::Firewall::Utility.persist_iptables(context, name, should[:protocol])
   end
 
   def delete(context, name, is)
     # Before we can delete a chain we must first flush it of any active rules
     context.notice("Flushing Chain '#{name}'")
-    Puppet::Provider.execute([$base_command[is[:protocol]], is[:table], $chain_flush_command, is[:chain]].join(' '))
+    Puppet::Provider.execute([$fwc_base_command[is[:protocol]], is[:table], $fwc_chain_flush_command, is[:chain]].join(' '))
 
     # For Inbuilt chains we cannot delete them and so instead simply ensure they are reverted to the default policy
-    if $built_in_regex.match(is[:chain])
+    if $fwc_built_in_regex.match(is[:chain])
       context.notice("Reverting Internal Chain '#{name}' to its default")
-      Puppet::Provider.execute([$base_command[is[:protocol]], is[:table], $chain_policy_command, is[:chain], 'ACCEPT'].join(' '))
+      Puppet::Provider.execute([$fwc_base_command[is[:protocol]], is[:table], $fwc_chain_policy_command, is[:chain], 'ACCEPT'].join(' '))
     else
       context.notice("Deleting Chain '#{name}'")
-      Puppet::Provider.execute([$base_command[is[:protocol]], is[:table], $chain_delete_command, is[:chain]].join(' '))
+      Puppet::Provider.execute([$fwc_base_command[is[:protocol]], is[:table], $fwc_chain_delete_command, is[:chain]].join(' '))
     end
     PuppetX::Firewall::Utility.persist_iptables(context, name, is[:protocol])
   end
@@ -153,10 +153,10 @@ class Puppet::Provider::Firewallchain::Firewallchain
     # If an in-built chain, always treat it as being present and ensure it is assigned a policy
     # The retrieval of in-built chains may get confused by `iptables-save` tendency to not return table information
     # for tables that have not yet been interacted with.
-    is[:ensure] = 'present' if $built_in_regex.match(is[:chain])
-    is[:policy] = 'accept' if $built_in_regex.match(is[:chain]) && is[:policy].nil?
+    is[:ensure] = 'present' if $fwc_built_in_regex.match(is[:chain])
+    is[:policy] = 'accept' if $fwc_built_in_regex.match(is[:chain]) && is[:policy].nil?
     # For the same reason assign it the default policy as an intended state if it does not have one
-    should[:policy] = 'accept' if $built_in_regex.match(should[:chain]) && should[:policy].nil?
+    should[:policy] = 'accept' if $fwc_built_in_regex.match(should[:chain]) && should[:policy].nil?
 
     [is, should]
   end
@@ -183,10 +183,10 @@ class Puppet::Provider::Firewallchain::Firewallchain
     end
 
     # Verify that Policy is only passed for the inbuilt chains
-    raise ArgumentError, "'policy' can only be set on Internal Chains. Setting for '#{should[:name]}' is invalid" if !$built_in_regex.match(should[:chain]) && should.key?(:policy)
+    raise ArgumentError, "'policy' can only be set on Internal Chains. Setting for '#{should[:name]}' is invalid" if !$fwc_built_in_regex.match(should[:chain]) && should.key?(:policy)
 
     # Warn that inbuilt chains will be flushed, not deleted
-    warn "Warning: Inbuilt Chains may not be deleted. Chain `#{should[:name]}` will be flushed and have it's policy reverted to default." if $built_in_regex.match(should[:chain]) &&
+    warn "Warning: Inbuilt Chains may not be deleted. Chain `#{should[:name]}` will be flushed and have it's policy reverted to default." if $fwc_built_in_regex.match(should[:chain]) &&
                                                                                                                                              should[:ensure] == 'absent'
   end
 
